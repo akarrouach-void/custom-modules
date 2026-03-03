@@ -1,0 +1,12 @@
+<div class="movie-listing">
+
+  {% if content.movies is not empty %}
+    <div class="movies">
+      {% for movie in content.movies %}
+        {{ movie }}
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="no-results">{{ 'No movies found.'|t }}</p>
+  {% endif %}
+</div>

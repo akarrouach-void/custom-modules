@@ -1,0 +1,5 @@
+movie-directory-styling:
+  css:
+    theme:
+      assets/css/movie-styles.css:
+        external: false

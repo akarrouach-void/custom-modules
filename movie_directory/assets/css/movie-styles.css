@@ -1,0 +1,59 @@
+/* Base page styling */
+body {
+  background-color: #f5f5f5; /* light gray instead of bright red */
+  margin: 0;
+  font-family: Arial, sans-serif;
+}
+
+/* Search box at top of listing */
+.movie-listing .search {
+  margin-bottom: 1rem;
+}
+.movie-listing .search label {
+  display: block;
+  font-weight: bold;
+  margin-bottom: 0.25rem;
+}
+.movie-listing .search input[type="text"] {
+  width: 100%;
+  padding: 0.5rem;
+  box-sizing: border-box;
+}
+
+/* Grid for movie cards */
+.movie-listing .movies {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+/* Individual movie card styles */
+.movie-card-wrapper {
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.movie-card__image img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.movie-card__title {
+  font-size: 1.1rem;
+  font-weight: bold;
+  padding: 0.5rem;
+  border-bottom: 1px solid #eee;
+}
+.movie-card__description {
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.no-results {
+  font-style: italic;
+  color: #666;
+}
