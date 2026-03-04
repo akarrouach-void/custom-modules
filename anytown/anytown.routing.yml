@@ -1,0 +1,15 @@
+anytown.weather_page:
+  path: "/weather"
+  defaults:
+    _controller: '\Drupal\anytown\Controller\WeatherController::content'
+    _title: "Anytown Weather"
+  requirements:
+    _permission: "view weather"
+
+anytown.weather_details:
+  path: "/weather/{city}"
+  defaults:
+    _controller: '\Drupal\anytown\Controller\WeatherController::details'
+    _title: "Weather Details"
+  requirements:
+    _permission: "view weather"

@@ -1,0 +1,4 @@
+
+view weather:
+  title: 'View Weather'
+  description: 'Allow users to view weather at the website'

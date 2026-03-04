@@ -7,7 +7,7 @@ movie_directory.api_config_page:
   requirements:
     _permission: "administer site configuration"
 
-movie_directory.lisiting:
+movie_directory.listing:
   path: "/movie-listing"
   defaults:
     _controller: '\Drupal\movie_directory\Controller\MovieListingController::view'
