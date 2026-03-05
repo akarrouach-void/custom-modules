@@ -1,0 +1,19 @@
+<div class="weather_page">
+  <div class="weather_page--messages">
+    {{ weather_intro }}
+  </div>
+  <div class="weather_page--forecast">
+    <h2>{{ "Weekend forecast"|t }}</h2>
+    <div class="short">
+      {{ short_forecast }}
+    </div>
+    <div class="long">
+      {{ weather_forecast }}
+    </div>
+  </div>
+  {% if weather_closures is not null %}
+    <div class="weather_page--closures">
+      {{ weather_closures }}
+    </div>
+  {% endif %}
+</div>

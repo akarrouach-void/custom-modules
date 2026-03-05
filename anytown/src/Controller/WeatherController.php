@@ -6,8 +6,11 @@ namespace Drupal\anytown\Controller;
 
 use Drupal\anytown\ForecastClientInterface;
 use Drupal\Core\Controller\ControllerBase;
- 
+use Drupal\Core\StringTranslation\StringTranslationTrait;
+
 class WeatherController extends ControllerBase {
+
+  use StringTranslationTrait;
   
   /** @var \Drupal\anytown\ForecastClientInterface */
   private $forecast_client;
@@ -19,31 +22,84 @@ class WeatherController extends ControllerBase {
   public function content() : array{
     $url = 'https://raw.githubusercontent.com/DrupalizeMe/module-developer-guide-demo-site/main/backups/weather_forecast.json';
     $forecast_data = $this->forecast_client->getForecastData($url);
+    $rows = [];
+
     if ($forecast_data) {
-      $forecast = '<ul>';
       foreach ($forecast_data as $item) {
         [
           'weekday' => $weekday,
           'description' => $description,
           'high' => $high,
           'low' => $low,
+          'icon' => $icon,
         ] = $item;
-        $forecast .= "<li>$weekday will be <em>$description</em> with a high of $high and a low of $low.</li>";
+
+        $rows[] = [
+          $weekday,
+          [
+            'data' => [
+              '#markup' => '<img alt="' . $description . '" src="' . $icon . '" width="20" height="20" />',
+            ],
+          ],
+          [
+            'data' => [
+              '#markup' => $this->t("<em>@description</em> with a high of @high and a low of @low", [
+                '@description' => $description,
+                '@high' => $high,
+                '@low' => $low,
+              ]),
+            ],
+          ],
+        ];
       }
-      $forecast .= '</ul>';
+
+      $weather_forecast = [
+        '#type' => 'table',
+        '#header' => [
+          $this->t('Day'),
+          '',
+          $this->t('Forecast'),
+        ],
+        '#rows' => $rows,
+        '#attributes' => [
+          'class' => ['weather_page--forecast-table'],
+        ],
+      ];
+
     }
     else {
-      $forecast = '<p>Could not get the weather forecast. Dress for anything.</p>';
+      // Or, display a message if we can't get the current forecast.
+      $weather_forecast = ['#markup' => $this->t('<p>Could not get the weather forecast. Dress for anything.</p>')]; 
     }
 
-    $output = "<p>Check out this weekend's weather forecast and come prepared. The market is mostly outside, and takes place rain or shine.</p>";
-    $output .= $forecast;
-    $output .= '<h3>Weather related closures</h3></h3><ul><li>Ice rink closed until winter - please stay off while we prepare it.</li><li>Parking behind Apple Lane is still closed from all the rain last week.</li></ul>';
+     $build = [
+      // Which theme hook to use for this content. See anytown_theme().
+      '#theme' => 'weather_page',
+      '#attached' => [
+        'library' => [
+          'anytown/forecast',
+        ],
+      ],
+      '#weather_intro' => [
+        '#markup' => $this->t("<p>Check out this weekend's weather forecast and come prepared. The market is mostly outside, and takes place rain or shine.</p>"),
+      ],
+      '#weather_forecast' => $weather_forecast,
+      '#weather_closures' => [
+        '#theme' => 'item_list',
+        '#title' => $this->t('Weather related closures'),
+        '#items' => [
+          $this->t('Ice rink closed until winter - please stay off while we prepare it.'),
+          $this->t('Parking behind Apple Lane is still closed from all the rain last weekend.'),
+        ],
+      ],
+    ];
 
-    return ['#markup' => $output];
+    return $build;
    
   }
 
+
+  
   public function details($city) :array {
     return [
       '#type' => 'markup',
