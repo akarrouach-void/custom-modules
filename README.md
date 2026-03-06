@@ -169,23 +169,23 @@ $this->logger->error('API call failed: @msg', ['@msg' => $e->getMessage()]);
 ### Use Logger to log a message — where do messages appear?
 
 ```php
-use Drupal\Core\DependencyInjection\AutowireTrait;
-use Drupal\Core\Logger\LoggerChannelFactoryInterface;
-
-class WeatherController extends ControllerBase {
-  use AutowireTrait;
-
-  public function __construct(
-    private readonly LoggerChannelFactoryInterface $loggerFactory
-  ) {}
-
-  public function content(): array {
-    $logger = $this->loggerFactory->get('anytown');
-    $logger->info('Weather page was visited.');
-    $logger->warning('Could not fetch forecast data.');
-
-    return ['#markup' => 'Weather page'];
+public function __construct(ClientInterface $httpClient, LoggerChannelFactoryInterface $logger_factory) {
+    $this->httpClient = $httpClient;
+    $this->logger = $logger_factory->get('anytown');
   }
+
+...
+
+public function getForecastData(string $url) : ?array {
+    try {
+      $response = $this->httpClient->request('GET', $url);
+      $json = json_decode($response->getBody()->getContents());
+    }
+    catch (GuzzleException $e) {
+      $this->logger->warning($e->getMessage());
+      return NULL;
+    }
+    ....
 }
 ```
 
@@ -406,13 +406,149 @@ public function apiData(): JsonResponse {
 return new JsonResponse(['error' => 'Not found'], 404);
 ```
 
-Register the route with `_controller` as usual — no special configuration needed:
+---
 
-```yaml
-my_module.api_data:
-  path: '/api/movies'
-  defaults:
-    _controller: '\Drupal\my_module\Controller\ApiController::apiData'
-  requirements:
-    _access: 'TRUE'
+# Day 3 : Hooks
+
+### What are hooks?
+
+Hooks are **functions that run automatically to change or extend Drupal's behaviour**, and they have 3 types:
+
+- **Registration hooks** : declare something exists (`hook_theme`, `hook_permission`)
+- **Event hooks** : react to something that happened (`hook_user_login`, `hook_node_insert`)
+- **Alter hooks** : intercept and modify data (`hook_form_alter`, `hook_preprocess_block`)
+
+Two ways to implement in Drupal 11:
+
+```php
+// Modern way : OOP class in src/Hook/
+#[Hook('form_alter')]
+public function formAlter(array &$form, FormStateInterface $form_state, string $form_id): void {
+  // logic here
+}
+
+// Old way : global function in .module file
+function mymodule_form_alter(&$form, $form_state, $form_id) {
+  // logic here
+}
 ```
+
+### What hooks does the `metatag` module provide?
+
+Found in `web/modules/contrib/metatag/metatag.api.php`:
+
+- `hook_metatag_route_entity` : tells metatag which entity to load tags from on a custom route
+- `hook_metatags_attachments_alter` : modify metatags just before they are added to the page
+- `hook_metatag_migrate_metatagd7_tags_map_alter` : used during migration from Drupal 7
+- `hook_metatag_migrate_nodewordsd6_tags_map_alter` : used during migration from Drupal 6
+
+### Which hook is responsible for altering a form?
+
+`hook_form_alter` receives 3 arguments:
+
+- `&$form` : the form array, passed by reference, modify directly
+- `$form_state` : current state of the form
+- `$form_id` : unique ID of the form being built
+
+```php
+// src/Hook/FormHooks.php
+#[Hook('form_alter')]
+public function formAlter(array &$form, FormStateInterface $form_state, string $form_id): void {
+  if ($form_id === 'movie_api_config_page') {
+    $form['my_custom_field'] = [
+      '#type' => 'textfield',
+      '#title' => 'My Custom Field',
+      '#description' => 'Added by anytown module',
+      '#weight' => 99,
+    ];
+  }
+}
+```
+
+To find any form's ID temporarily add inside `formAlter`:
+
+```php
+\Drupal::messenger()->addMessage('Form ID: ' . $form_id);
+```
+
+### Using `isFrontPage` and a preprocess hook to pass `is_front` to Twig
+
+`hook_preprocess_page` runs before `page.html.twig` renders : variables you add here become available in the template.
+
+```php
+// src/Hook/ThemeHooks.php
+#[Hook('preprocess_page')]
+public function preprocessPage(array &$variables): void {
+  $variables['is_front'] = \Drupal::service('path.matcher')->isFrontPage();
+}
+```
+
+Confirm it works temporarily:
+
+```php
+\Drupal::messenger()->addMessage('is_front = ' . ($variables['is_front'] ? 'TRUE' : 'FALSE'));
+```
+
+Use in Twig:
+
+```twig
+{% if is_front %}
+  <div class="hero-banner">Welcome!</div>
+{% endif %}
+```
+
+### Use `hook_page_attachments_alter` to add a viewport metatag
+
+```php
+// src/Hook/ThemeHooks.php
+#[Hook('page_attachments_alter')]
+public function pageAttachmentsAlter(array &$attachments): void {
+  $attachments['#attached']['html_head'][] = [
+    [
+      '#tag' => 'meta',
+      '#attributes' => [
+        'name' => 'viewport',
+        'content' => 'width=device-width, initial-scale=1, shrink-to-fit=no',
+      ],
+    ],
+    'viewport',  // unique key : like an id, prevents duplicate tags
+  ];
+}
+```
+
+Verify : right click any page → View Page Source → search `viewport`.
+
+### Use `hook_preprocess_menu` to add a CSS class to all menu items
+
+```php
+// src/Hook/ThemeHooks.php
+#[Hook('preprocess_menu')]
+public function preprocessMenu(array &$variables): void {
+  foreach ($variables['items'] as &$item) {
+    // $item['attributes'] is an Attribute object : use ->addClass() not array syntax
+    $item['attributes']->addClass('my-custom-class');
+  }
+}
+```
+
+Verify by inspecting any menu `<li>` in browser dev tools.
+
+### Use `hook_preprocess_block` to alter the `system_branding_block`
+
+```php
+// src/Hook/ThemeHooks.php
+#[Hook('preprocess_block')]
+public function preprocessBlock(array &$variables): void {
+  if ($variables['plugin_id'] === 'system_branding_block') {
+    $variables['site_logo'] = 'https://static.cdnlogo.com/logos/d/88/drupal-wordmark.svg';
+  }
+}
+```
+
+To find the `plugin_id` of any block, temporarily log all IDs:
+
+```php
+\Drupal::messenger()->addMessage('plugin_id: ' . $variables['plugin_id']);
+```
+
+This lists every block plugin ID when visiting a page : find the one you need and target it.

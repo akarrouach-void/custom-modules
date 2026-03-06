@@ -1,0 +1,8 @@
+<?php
+
+function anytown_help(string $route_name) {
+  if ($route_name === 'help.page.anytown') {
+    $name = \Drupal::currentUser()->getDisplayName();
+    return '<p>' . t("Hi %name, the anytown module provides by the module function code specific to the Anytown Farmer's market website. This includes the weather forecast page, block, and related settings.", ['%name' => $name]) . '</p>';
+  }  
+}

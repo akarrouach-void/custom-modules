@@ -13,7 +13,7 @@ use Drupal\hello_world\Form\HelloSettingsForm;
 
 #[Block(
   id: "hello_block",
-  admin_label: new TranslatableMarkup("Hello block"),
+  admin_label: new TranslatableMarkup("Hello block 123"),
   category: new TranslatableMarkup("Hello World")
 )]
 
@@ -31,6 +31,4 @@ class HelloBlock extends BlockBase {
           ]),
         ];
   }
-
-
 }

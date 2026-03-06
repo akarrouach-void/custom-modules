@@ -1,0 +1,12 @@
+movie_directory.admin:
+  title: 'Movie directory settings'
+  description: 'Example admin settings page link for the movie directory module'
+  parent: system.admin_config_development
+  route_name: movie_directory.api_config_page
+  weight: 101
+
+movie_directory.movie_list_page:
+  title: 'Movies'
+  description: 'View the list of available movies.'
+  menu_name: main
+  route_name: movie_directory.listing
