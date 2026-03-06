@@ -1,4 +1,9 @@
 services:
   movie_directory.api_connector:
     class: Drupal\movie_directory\MovieApiConnector
-    arguments: ["@http_client_factory"]
+    arguments:
+      - '@http_client_factory'
+      - '@logger.factory'
+      - '@state'
+  Drupal\movie_directory\MovieApiConnector:
+    alias: movie_directory.api_connector

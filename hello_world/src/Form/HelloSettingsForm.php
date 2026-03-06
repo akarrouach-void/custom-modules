@@ -55,4 +55,11 @@ class HelloSettingsForm extends ConfigFormBase {
     parent::submitForm($form, $form_state);
   }
 
+  public function validateForm(array &$form, FormStateInterface $form_state) {
+    $name = $form_state->getValue('name');
+    if (strlen($name) > 50 || strlen($name) < 3) {
+      $form_state->setErrorByName('name', $this->t('Name cannot be longer than 50 characters or less than 3 characters.'));
+    }
+    parent::validateForm($form, $form_state);
+  }
 }

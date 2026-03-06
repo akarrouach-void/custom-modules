@@ -97,6 +97,8 @@ class WeatherController extends ControllerBase {
     return $build;
    
   }
+
+
   
   public function details($city) :array {
     return [

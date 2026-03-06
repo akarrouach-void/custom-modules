@@ -3,38 +3,42 @@
 namespace Drupal\movie_directory;
 
 use Drupal\Core\Http\ClientFactory;
+use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\Core\State\StateInterface;
 use Drupal\movie_directory\Form\MovieApi;
+use GuzzleHttp\Exception\RequestException;
 
 class MovieApiConnector {
-  private $client;
+  private $clientFactory;
+  private $loggerFactory;
+  private $state;
 
-  private $query;
-
-  public function __construct(ClientFactory $client) {
-    $this->client = $client;
-    $movieApiConfig = \Drupal::state()->get(MovieApi::MOVIE_API_CONFIG_PAGE, []);
-    $api_url = $movieApiConfig['api_base_url'] ?? 'https://api.themoviedb.org/'; 
-    $api_key = $movieApiConfig['api_key'] ?? ''; 
-
-    $this->query = ['api_key' => $api_key];
-    $this->client= $client->fromOptions([
-      'base_uri' => $api_url,
-      "query" => $this->query,
-    ]);
-
+  public function __construct(ClientFactory $clientFactory, LoggerChannelFactoryInterface $loggerFactory , StateInterface $state) {
+    $this->clientFactory = $clientFactory;
+    $this->loggerFactory = $loggerFactory;
+    $this->state = $state;
   }
 
   public function fetchMovies() {
     try {
-      
-      $response = $this->client->get('3/discover/movie', ['query' => $this->query]);
+      $movieApiConfig = $this->state->get(MovieApi::MOVIE_API_CONFIG_PAGE, []);
+
+      $api_url = $movieApiConfig['api_base_url'] ?? 'https://api.themoviedb.org/'; 
+      $api_key = $movieApiConfig['api_key'] ?? ''; 
+
+      $query = ['api_key' => $api_key];
+      $httpClient = $this->clientFactory->fromOptions([ 'base_uri' => $api_url,"query" => $query]);
+
+      $response = $httpClient->get('3/discover/movie', ['query' => $query]);
       $data = json_decode($response->getBody()->getContents(), true);
       return $data['results'] ?? [];
-    } catch (\GuzzleHttp\Exception\RequestException $e) {
-      \Drupal::logger('movie_directory')->error($e->getMessage());
+    } catch (RequestException $e) {
+      // \Drupal::logger('movie_directory')->error($e->getMessage());
+      $this->loggerFactory->get('movie_directory')->error('Failed to fetch movies: @message', ['@message' => $e->getMessage()]);
       return [];
     }
   }
+  
   public function getImageUrl ($imagePath)  {
     $baseImageUrl = 'https://image.tmdb.org/t/p/w500/';
     return $baseImageUrl . $imagePath;

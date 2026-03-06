@@ -3,11 +3,22 @@
 namespace Drupal\movie_directory\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Core\DependencyInjection\AutowireTrait;
+use Drupal\movie_directory\MovieApiConnector;
 
 class MovieListingController extends ControllerBase{
-  public function view() {
-    
-    $movies = $this->listMovies();
+
+  use AutowireTrait;
+
+  /** @var \Drupal\movie_directory\MovieApiConnector */
+  private $movieApi;
+
+  public function __construct(MovieApiConnector $movieApi) {
+      $this->movieApi = $movieApi;
+  } 
+
+  public function view() {    
+    $movies = $this->movieApi->fetchMovies();
 
     $content = [];
     $content['movies'] = $this->createMovieCard($movies);
@@ -20,16 +31,12 @@ class MovieListingController extends ControllerBase{
           'movie_directory/movie-directory-styling',
         ],
       ], 
+      '#cache' => ['tags' => ['movie_api_config']],
     ];
   }
 
-  public function listMovies() {
-    $movieApiConnector = \Drupal::service('movie_directory.api_connector');
-    return $movieApiConnector->fetchMovies();
-  }
-
   public function createMovieCard(array $movies) {
-    $movieApiConnector = \Drupal::service('movie_directory.api_connector');
+    
     $movieCard = [];
 
     if (!empty($movies)) {
@@ -40,7 +47,7 @@ class MovieListingController extends ControllerBase{
           'description' => $movie['overview'] ?? 'No description available.',
           'movie_id' => $movie['id'] ?? 'N/A', 
           // template expects `content.image`.
-          'image' => $movieApiConnector->getImageUrl($movie['poster_path'] ?? ''),  
+          'image' => $this->movieApi->getImageUrl($movie['poster_path'] ?? ''),  
         ];
         $movieCard[] = [
           '#theme' => 'movie_card',

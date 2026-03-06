@@ -2,16 +2,31 @@
 
 namespace Drupal\movie_directory\Form;
 
+use Drupal\Core\DependencyInjection\AutowireTrait;
 use Drupal\Core\Form\FormBase;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\State\StateInterface;
+use Drupal\Core\Cache\Cache;
 
 class MovieApi extends FormBase {
-  const MOVIE_API_CONFIG_PAGE = 'movie_directory.api_config_page:values';
+  use AutowireTrait;
+
+  const MOVIE_API_CONFIG_PAGE = 'movie_directory.settings';
+
+  /** @var StateInterface */
+  private $state;
+
+  public function __construct(StateInterface $state) {
+    $this->state = $state;
+  }
+  
   public function getFormId() {
-    return 'movie_api_config_page';
+    return self::MOVIE_API_CONFIG_PAGE;
   }
 
-  public function buildForm(array $form, \Drupal\Core\Form\FormStateInterface $form_state) {
-    $values = \Drupal::state()->get(self::MOVIE_API_CONFIG_PAGE, []);
+  public function buildForm(array $form, FormStateInterface $form_state) {
+    // $values = \Drupal::state()->get(self::MOVIE_API_CONFIG_PAGE, []);
+    $values = $this->state->get(self::MOVIE_API_CONFIG_PAGE, []);
     $form = [];
 
     $form['api_base_url'] = [
@@ -31,7 +46,7 @@ class MovieApi extends FormBase {
     ];
 
     $form['actions']['#type'] = 'actions';
-    $form['actions'][' submit'] = [
+    $form['actions']['submit'] = [
       '#type' => 'submit',
       '#value' => $this->t('Save Configuration'),
       '#button_type' => 'primary',
@@ -41,11 +56,30 @@ class MovieApi extends FormBase {
   }
 
   public function submitForm(array &$form, \Drupal\Core\Form\FormStateInterface $form_state) {
-    $submitted_values = $form_state->cleanValues()->getValues();
+    // $submitted_values = $form_state->cleanValues()->getValues();
+    // Drupal::state()->set(self::MOVIE_API_CONFIG_PAGE, $submitted_values);
+    // $messenger = \Drupal::messenger();
+    // $messenger->addMessage($this->t('Movie API configuration saved.'));
 
-    \Drupal::state()->set(self::MOVIE_API_CONFIG_PAGE, $submitted_values);
+    $this->state->set(self::MOVIE_API_CONFIG_PAGE, $form_state->cleanValues()->getValues());
+    Cache::invalidateTags(['movie_api_config']);  
+    $this->messenger()->addStatus($this->t('Movie API configuration saved.'));
 
-    $messenger = \Drupal::messenger();
-    $messenger->addMessage($this->t('Movie API configuration saved.'));
+  }
+
+  public function validateForm(array &$form, FormStateInterface $form_state)
+  {
+      $api_base_url = $form_state->getValue('api_base_url');
+      if (!filter_var($api_base_url, FILTER_VALIDATE_URL)) {
+        $form_state->setErrorByName('api_base_url', $this->t('The API Base URL must be a valid URL.'));
+      }
+  
+      $api_key = $form_state->getValue('api_key');
+      if (empty($api_key)) {
+        $form_state->setErrorByName('api_key', $this->t('The API Key cannot be empty.'));
+      }
+
+
+    return parent::validateForm($form, $form_state);
   }
 }

@@ -558,3 +558,427 @@ To find the `plugin_id` of any block, temporarily log all IDs:
 ```
 
 This lists every block plugin ID when visiting a page : find the one you need and target it.
+
+# Day 4 : Plugins & Forms
+
+### What are Plugins?
+
+Plugins are **reusable, swappable OOP classes** that implement a defined interface. Unlike hooks which are just functions, plugins are full classes.
+
+```
+Hooks   : functions Drupal calls automatically by naming convention
+Plugins : classes that implement a specific interface, discovered by attributes
+```
+
+Plugin types in Drupal :
+
+```
+src/Plugin/
+  ├── Block/          : block plugins
+  ├── Field/
+  │   ├── Formatter/  : how a field displays
+  │   └── Widget/     : how a field is edited
+  ├── QueueWorker/    : background processing
+  └── Action/         : bulk operations
+```
+
+A module is the package. Inside it you can have hooks, services, plugins, controllers and forms :
+
+```
+Module (hello_world/)
+  ├── Hooks       : src/Hook/        — functions Drupal calls automatically
+  ├── Plugins     : src/Plugin/      — swappable OOP pieces (Block etc)
+  ├── Services    : src/             — reusable business logic
+  ├── Controllers : src/Controller/  — handle page requests
+  └── Forms       : src/Form/        — handle form build/validate/submit
+```
+
+### Service : the middle layer
+
+```
+Controller  →  Service  →  External API / Database
+```
+
+Each layer has one job :
+
+```
+Controller : handle the request, return a response
+Service    : business logic, data fetching, processing
+API/DB     : the actual data source
+```
+
+Services can be reused anywhere :
+
+```
+Controller  ──→ Service ──→ API
+Block       ──→ Service ──→ API
+Hook        ──→ Service ──→ API
+```
+
+### Dependency Injection in Plugins (Blocks)
+
+Blocks extend `BlockBase` — cannot use `AutowireTrait`. Must use `create()` manually:
+
+```php
+#[Block(
+  id: "hello_block",
+  admin_label: new TranslatableMarkup("Hello block"),
+  category: new TranslatableMarkup("Custom")
+)]
+class HelloBlock extends BlockBase implements ContainerFactoryPluginInterface {
+
+  /** @var \Drupal\Core\Session\AccountProxyInterface */
+  private $currentUser;
+  /** @var \Drupal\Core\Config\ConfigFactoryInterface */
+  private $configFactory;
+
+  public function __construct(
+    array $configuration,
+    $plugin_id,
+    $plugin_definition,
+    AccountProxyInterface $current_user,
+    ConfigFactoryInterface $config_factory
+  ) {
+    parent::__construct($configuration, $plugin_id, $plugin_definition);
+    $this->currentUser = $current_user;
+    $this->configFactory = $config_factory;
+  }
+
+  public function build(): array {
+    $config = $this->configFactory->get(HelloSettingsForm::HELLO_WORLD_SETTINGS);
+
+    return [
+      '#markup' => $this->t('Hello, @name!', [
+        '@name' => $config->get('hello.name') ?: $this->currentUser->getDisplayName() ?: 'Stranger',
+      ]),
+      '#cache' => [
+        'tags' => $config->getCacheTags(),  // invalidate when config changes
+        'contexts' => ['user'],             // separate cache per user
+      ],
+    ];
+  }
+
+  public static function create($container, array $configuration, $plugin_id, $plugin_definition): static {
+    return new static(
+      $configuration,
+      $plugin_id,
+      $plugin_definition,
+      $container->get('current_user'),
+      $container->get('config.factory'),
+    );
+  }
+}
+```
+
+Note : `$configuration` in plugins is NOT the Drupal config system. It is the block instance data (region, label etc) set by Drupal internally.
+
+### Cache tags and contexts
+
+```php
+'#cache' => [
+  'tags' => $config->getCacheTags(),  // WHEN to invalidate (config changes)
+  'contexts' => ['user'],             // FOR WHOM to cache separately
+  'max-age' => 0,                     // HOW LONG — 0 = never cache (dev only!)
+],
+```
+
+Cache contexts :
+
+```php
+'contexts' => ['user']           // separate cache per user
+'contexts' => ['user.roles']     // separate cache per role
+'contexts' => ['url']            // separate cache per URL
+'contexts' => ['languages']      // separate cache per language
+```
+
+### ConfigFactory vs ImmutableConfig
+
+```
+ConfigFactoryInterface  : the factory SERVICE — injected via DI
+ImmutableConfig         : the config OBJECT returned by the factory — read only
+```
+
+```php
+// Inject the factory
+public function __construct(ConfigFactoryInterface $configFactory) {
+  $this->configFactory = $configFactory;
+}
+
+// Use factory to get ImmutableConfig (read only)
+$config = $this->configFactory->get('hello_world.settings');
+$config->get('hello.name');        // read value ✅
+$config->set('hello.name', '...')  // error! immutable ❌
+
+// Use getEditable() to write
+$this->configFactory->getEditable('hello_world.settings')
+  ->set('hello.name', 'Ansar')
+  ->save();
+```
+
+### State API vs Config API vs Config Entities
+
+|                   | State          | Config          | Config Entity               |
+| ----------------- | -------------- | --------------- | --------------------------- |
+| Exportable        | No             | Yes             | Yes                         |
+| Travels with code | No             | Yes             | Yes                         |
+| Use for           | runtime data   | module settings | Views, Roles, Content types |
+| Example           | last cron time | site name       | Views, Roles                |
+
+```php
+// State API : simple key-value, not exportable
+$this->state->set('movie_directory.settings', $values);
+$this->state->get('movie_directory.settings');
+
+// Config API : exportable to config/sync as YAML
+$this->configFactory->getEditable('mymodule.settings')
+  ->set('api_url', $value)
+  ->save();
+```
+
+Rule :
+
+```
+Admin settings that move between environments  : Config API
+Runtime/temporary data                         : State API
+Sensitive data (API keys, passwords)           : environment variables
+```
+
+### Where can you validate form data?
+
+**Primary place : `validateForm()` in the form class:**
+
+```php
+// hello_world module
+public function validateForm(array &$form, FormStateInterface $form_state): void {
+  $name = $form_state->getValue('name');
+  if (strlen($name) > 50 || strlen($name) < 3) {
+    $form_state->setErrorByName('name', $this->t('Name cannot be longer than 50 or less than 3 characters.'));
+  }
+  parent::validateForm($form, $form_state);
+}
+
+// movie_directory module
+public function validateForm(array &$form, FormStateInterface $form_state): void {
+  $api_base_url = $form_state->getValue('api_base_url');
+  if (!filter_var($api_base_url, FILTER_VALIDATE_URL)) {
+    $form_state->setErrorByName('api_base_url', $this->t('The API Base URL must be a valid URL.'));
+  }
+
+  $api_key = $form_state->getValue('api_key');
+  if (empty($api_key)) {
+    $form_state->setErrorByName('api_key', $this->t('The API Key cannot be empty.'));
+  }
+
+  parent::validateForm($form, $form_state);
+}
+
+// anytown module
+public function validateForm(array &$form, FormStateInterface $form_state): void {
+  $location = $form_state->getValue('location');
+  $value = filter_var($location, FILTER_VALIDATE_INT);
+  if (!$value || strlen((string) $location) !== 5) {
+    $form_state->setErrorByName('location', $this->t('Location must be exactly 5 numbers.'));
+  }
+
+  parent::validateForm($form, $form_state);
+}
+```
+
+**+1 : Also via `hook_form_alter` for forms you don't own:**
+
+```php
+#[Hook('form_alter')]
+public function formAlter(array &$form, FormStateInterface $form_state, string $form_id): void {
+  if ($form_id === 'user_register_form') {
+    $form['#validate'][] = 'mymodule_extra_validate';
+  }
+}
+
+function mymodule_extra_validate(array &$form, FormStateInterface $form_state): void {
+  $email = $form_state->getValue('email');
+  if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    $form_state->setErrorByName('email', t('Invalid email.'));
+  }
+}
+```
+
+Rule :
+
+```
+Your own form       : validateForm() in the form class
+Someone else's form : hook_form_alter() + custom validator
+```
+
+### How to render a Form inside a Block
+
+`ControllerBase` provides `formBuilder()` shortcut for free :
+
+```php
+class MyFormBlock extends BlockBase implements ContainerFactoryPluginInterface {
+
+  public function build(): array {
+    return $this->formBuilder()->getForm('\Drupal\mymodule\Form\MyCustomForm');
+  }
+
+}
+```
+
+### How to redirect after form submit and show a message
+
+```php
+public function submitForm(array &$form, FormStateInterface $form_state): void {
+
+  // Green success message
+  $this->messenger()->addStatus($this->t('Settings saved successfully.'));
+
+  // Redirect to a route
+  $form_state->setRedirect('hello_world.content');
+
+  // Or redirect to a URL
+  $form_state->setRedirectUrl(Url::fromUri('internal:/weather'));
+}
+```
+
+Messenger methods :
+
+```php
+$this->messenger()->addStatus(...)   // green : success
+$this->messenger()->addWarning(...)  // yellow : warning
+$this->messenger()->addError(...)    // red : error
+```
+
+### Hide a field for anonymous users using `#access`
+
+```php
+$form['secret_field'] = [
+  '#type' => 'textfield',
+  '#title' => $this->t('Secret Field'),
+  '#access' => \Drupal::currentUser()->isAuthenticated(),
+  // logged in  : TRUE  : visible
+  // anonymous  : FALSE : hidden
+];
+```
+
+Other access examples :
+
+```php
+// Only admins
+'#access' => \Drupal::currentUser()->hasPermission('administer site configuration'),
+
+// Only editors
+'#access' => in_array('editor', \Drupal::currentUser()->getRoles()),
+```
+
+`#access => FALSE` vs `unset()` :
+
+```php
+$form['field']['#access'] = FALSE;  // hidden but still secure — Drupal validates server side ✅
+unset($form['field']);              // completely removed from form ✅
+```
+
+### How to group fields together
+
+Use `#type : fieldset` or `#type : details` :
+
+```php
+// Fieldset : simple grouping (not collapsible)
+$form['personal'] = [
+  '#type' => 'fieldset',
+  '#title' => $this->t('Personal Information'),
+];
+
+$form['personal']['name'] = [
+  '#type' => 'textfield',
+  '#title' => $this->t('Name'),
+];
+
+// Details : collapsible group (closest to field_group module)
+$form['address'] = [
+  '#type' => 'details',
+  '#title' => $this->t('Address'),
+  '#open' => TRUE,  // expanded by default
+];
+
+$form['address']['street'] = [
+  '#type' => 'textfield',
+  '#title' => $this->t('Street'),
+];
+```
+
+### hook_form_alter variants
+
+```php
+// Runs for ALL forms
+#[Hook('form_alter')]
+public function formAlter(array &$form, FormStateInterface $form_state, string $form_id): void {
+  if ($form_id === 'user_register_form') {
+    $form['phone'] = ['#type' => 'tel', '#title' => 'Phone'];
+  }
+}
+
+// Runs ONLY for user_register_form
+#[Hook('form_user_register_form_alter')]
+public function formUserRegisterFormAlter(array &$form, FormStateInterface $form_state): void {
+  $form['phone'] = ['#type' => 'tel', '#title' => 'Phone'];
+}
+```
+
+How to find a form ID :
+
+```php
+// 1. Check getFormId() in the form class
+public function getFormId() { return 'user_register_form'; }
+
+// 2. Inspect HTML — dashes in HTML = underscores in PHP
+<form id="user-register-form">
+
+// 3. Temporarily dump it
+\Drupal::messenger()->addMessage('Form ID: ' . $form_id);
+```
+
+### Form structure best practices
+
+```php
+// actions container — correct way to add buttons
+$form['actions']['#type'] = 'actions';
+$form['actions']['submit'] = [
+  '#type' => 'submit',
+  '#value' => $this->t('Save'),
+  '#button_type' => 'primary',
+];
+```
+
+`#type : actions` wraps buttons in `<div class="form-actions">` for proper theme styling and always places them at the bottom.
+
+### return $form vs return parent::buildForm()
+
+```php
+// return $form : returns only what you built
+return $form;
+
+// return parent::buildForm() : adds form_token, form_id, form_build_id
+return parent::buildForm($form, $form_state);
+```
+
+Rule :
+
+```
+extends FormBase        : return $form (fine)
+extends ConfigFormBase  : return parent::buildForm() (required)
+```
+
+### $form passed by reference
+
+```php
+// & means by reference — changes to $form persist
+public function formAlter(array &$form, ...) {
+  $form['new_field'] = [...];  // modifies the original ✅
+}
+
+// Without & — changes are lost
+public function formAlter(array $form, ...) {
+  $form['new_field'] = [...];  // modifies a copy, lost ❌
+}
+```
+
+`buildForm` is the only form method WITHOUT `&` because it returns the form instead of modifying in place.
