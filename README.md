@@ -4,10 +4,16 @@ This directory contains the custom Drupal modules used in this project.
 
 Modules included:
 
+- **anytown**: A demo module showing a service, dependency injection, hooks and a controller that fetches weather data.
 - **hello_world**: A minimal example module that provides a simple route, controller, block, and an admin settings form to set a name shown in the block.
 - **movie_directory**: A custom module that integrates with a movie API to display a movie listing. It includes a service `MovieApiConnector`, a controller for the listing page, an admin configuration form for the API base URL and API key, and Twig templates for the listing and movie cards.
 
 Quick overview:
+
+- anytown
+  - Provides a weather forecast page built around a custom `ForecastClient` service.
+  - Demonstrates service registration, dependency injection, and use of hooks.
+  - Files: `anytown.info.yml`, `anytown.routing.yml`, `anytown.links.menu.yml`, `anytown.services.yml`, `src/ForecastClient.php`, `src/ForecastClientInterface.php`, `src/Controller/WeatherController.php`, `src/Hook/AnytownTheme.php`, `src/Hook/FormHooks.php`, `templates/weather-page.html.twig`, plus associated CSS/JS assets.
 
 - hello_world
   - Provides a simple page and a block that displays a greeting using the configured name.
