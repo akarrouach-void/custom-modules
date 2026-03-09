@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\anytown\Controller;
 
 use Drupal\anytown\ForecastClientInterface;
+use Drupal\anytown\Form\SettingsForm;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 
@@ -20,7 +21,16 @@ class WeatherController extends ControllerBase {
   }
 
   public function content() : array{
+
+    $settings = $this->config(SettingsForm::SETTINGS);
+    $location = $settings->get('location');
+
+
     $url = 'https://raw.githubusercontent.com/DrupalizeMe/module-developer-guide-demo-site/main/backups/weather_forecast.json';
+    if ($location) {
+      $url = $url . strtolower($location);
+    }
+
     $forecast_data = $this->forecast_client->getForecastData($url);
     $rows = [];
 
@@ -87,11 +97,9 @@ class WeatherController extends ControllerBase {
       '#weather_closures' => [
         '#theme' => 'item_list',
         '#title' => $this->t('Weather related closures'),
-        '#items' => [
-          $this->t('Ice rink closed until winter - please stay off while we prepare it.'),
-          $this->t('Parking behind Apple Lane is still closed from all the rain last weekend.'),
-        ],
+        '#items' => explode(PHP_EOL, $settings->get('weather_closures') ?? ''),
       ],
+      '#cache' => ['tags' => $settings->getCacheTags()],
     ];
 
     return $build;

@@ -26,6 +26,12 @@ class AnytownTheme {
           'weather_closures' => '',
         ],
       ],
+      'node_block' => [
+        'variables' => [
+          'title' => NULL,
+          'nodes' => [],
+        ],
+      ],
     ];
   }
 

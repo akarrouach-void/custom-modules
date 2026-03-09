@@ -4,6 +4,7 @@ services:
     arguments:
       - '@http_client_factory'
       - '@logger.factory'
-      - '@state'
+      # - '@state'
+      - '@config.factory'
   Drupal\movie_directory\MovieApiConnector:
     alias: movie_directory.api_connector

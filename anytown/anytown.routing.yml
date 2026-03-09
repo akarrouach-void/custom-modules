@@ -21,3 +21,19 @@ anytown.settings:
     _title: 'Anytown Settings'
   requirements:
     _permission: 'administer site configuration '
+
+anytown.attending:
+  path: '/attending'
+  defaults:
+    _title: 'Attending'
+    _controller: '\Drupal\anytown\Controller\Attending::build'
+  requirements:
+    _permission: 'access content'
+
+anytown.node_selector:
+  path: '/anytown/node-selector'
+  defaults:
+    _form: '\Drupal\anytown\Form\NodeSelectorForm'
+    _title: 'Select a Node'
+  requirements:
+    _permission: 'access content'

@@ -17,7 +17,7 @@ class HelloSettingsForm extends ConfigFormBase {
   }
 
   public function getFormId() {
-    return 'hello_world_settings_form';
+    return static::HELLO_WORLD_SETTINGS;
   }
 
   public function buildForm(array $form, FormStateInterface $form_state) {

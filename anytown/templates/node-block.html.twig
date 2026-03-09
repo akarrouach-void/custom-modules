@@ -1,0 +1,15 @@
+<div class="node-block">
+
+  <h3>{{ title }}</h3>
+
+  {% if nodes %}
+    <ul class="node-block__related">
+      {% for node_title in nodes %}
+        <li>{{ node_title }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>{{ 'No related nodes found.'|t }}</p>
+  {% endif %}
+
+</div>

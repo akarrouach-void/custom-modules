@@ -3,12 +3,12 @@
 namespace Drupal\movie_directory\Form;
 
 use Drupal\Core\DependencyInjection\AutowireTrait;
-use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\State\StateInterface;
 use Drupal\Core\Cache\Cache;
+use Drupal\Core\Form\ConfigFormBase;
 
-class MovieApi extends FormBase {
+class MovieApi extends ConfigFormBase {
   use AutowireTrait;
 
   const MOVIE_API_CONFIG_PAGE = 'movie_directory.settings';
@@ -19,6 +19,10 @@ class MovieApi extends FormBase {
   public function __construct(StateInterface $state) {
     $this->state = $state;
   }
+
+  protected function getEditableConfigNames(): array {
+    return [self::MOVIE_API_CONFIG_PAGE];
+  }
   
   public function getFormId() {
     return self::MOVIE_API_CONFIG_PAGE;
@@ -26,7 +30,8 @@ class MovieApi extends FormBase {
 
   public function buildForm(array $form, FormStateInterface $form_state) {
     // $values = \Drupal::state()->get(self::MOVIE_API_CONFIG_PAGE, []);
-    $values = $this->state->get(self::MOVIE_API_CONFIG_PAGE, []);
+    // $values = $this->state->get(self::MOVIE_API_CONFIG_PAGE, []);
+    $config = $this->config(static::MOVIE_API_CONFIG_PAGE);
     $form = [];
 
     $form['api_base_url'] = [
@@ -34,7 +39,8 @@ class MovieApi extends FormBase {
       '#title' => $this->t('API Base URL'),
       '#description' => $this->t('The base URL for the movie API.'),
       '#required' => TRUE,
-      '#default_value' => $values['api_base_url'] ?? '', 
+      '#default_value' => $config->get('api_base_url') ?? '', 
+      
     ];
 
     $form['api_key'] = [
@@ -42,7 +48,8 @@ class MovieApi extends FormBase {
       '#title' => $this->t('API Key (v3 auth)'),
       '#description' => $this->t('The API key for the movie API.'),
       '#required' => TRUE,
-      '#default_value' => $values['api_key'] ?? '', 
+      // '#default_value' => $values['api_key'] ?? '', 
+      '#default_value' => $config->get('api_key') ?? '',
     ];
 
     $form['actions']['#type'] = 'actions';
@@ -60,8 +67,12 @@ class MovieApi extends FormBase {
     // Drupal::state()->set(self::MOVIE_API_CONFIG_PAGE, $submitted_values);
     // $messenger = \Drupal::messenger();
     // $messenger->addMessage($this->t('Movie API configuration saved.'));
-
-    $this->state->set(self::MOVIE_API_CONFIG_PAGE, $form_state->cleanValues()->getValues());
+    // $this->state->set(self::MOVIE_API_CONFIG_PAGE, $form_state->cleanValues()->getValues());
+    
+    $this->config(static::MOVIE_API_CONFIG_PAGE)
+      ->set('api_base_url', $form_state->getValue('api_base_url'))
+      ->set('api_key', $form_state->getValue('api_key'))
+      ->save();
     Cache::invalidateTags(['movie_api_config']);  
     $this->messenger()->addStatus($this->t('Movie API configuration saved.'));
 

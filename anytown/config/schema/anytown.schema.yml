@@ -1,0 +1,13 @@
+anytown.settings:
+  type: config_object
+  label: 'Anytown settings'
+  mapping:
+    location:
+      type: string
+      label: 'Location'
+    display_forecast:
+      type: boolean
+      label: 'Display forecast'
+    weather_closures:
+      type: string
+      label: 'Weather closures'

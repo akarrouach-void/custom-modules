@@ -19,6 +19,7 @@ class MovieListingController extends ControllerBase{
 
   public function view() {    
     $movies = $this->movieApi->fetchMovies();
+    
 
     $content = [];
     $content['movies'] = $this->createMovieCard($movies);

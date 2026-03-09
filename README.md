@@ -982,3 +982,531 @@ public function formAlter(array $form, ...) {
 ```
 
 `buildForm` is the only form method WITHOUT `&` because it returns the form instead of modifying in place.
+
+# Day 5 : Data Types, Entities & Queries
+
+### Config vs State vs Entity System
+
+```
+Config  : "how the site is configured"
+          exportable, travels between environments
+          example : site name, API keys, module settings
+
+State   : "what the site is currently doing"
+          temporary runtime data, stays per environment
+          example : last cron run time, temporary flags
+
+Entity  : "what content the site has" — Drupal's ORM
+          example : nodes, users, comments, taxonomy terms
+```
+
+### Config API : Simple vs Config Entities
+
+```
+Simple Configuration :
+  one set of settings per site
+  ├── site name
+  ├── API keys
+  ├── module on/off settings
+  └── hello_world.settings (hello.name)
+
+Configuration Entities :
+  multiple instances of the same type
+  ├── Content types (article, page, blog...)
+  ├── Views (frontpage, user_list, search...)
+  ├── Image styles (thumbnail, medium, large...)
+  └── Vocabularies (tags, categories...)
+```
+
+### Reading and writing config
+
+```php
+// READ ONLY — ImmutableConfig
+$config = \Drupal::config('anytown.settings');
+$location = $config->get('location');
+
+// READ AND WRITE — mutable Config
+$config = $this->configFactory->getEditable('anytown.settings');
+$config->set('location', '90210')->save();
+```
+
+Rule:
+
+```
+Admin settings that move between environments  : Config API
+Runtime/temporary data                         : State API
+Sensitive data (API keys, passwords)           : environment variables
+```
+
+### Use `drush php` to dump `eu_cookie_compliance` config
+
+```bash
+ddev drush php
+```
+
+```php
+$config = \Drupal::config('eu_cookie_compliance.settings');
+print_r($config->getRawData());
+```
+
+Returns all active config values from the database:
+
+```
+popup_enabled              : 1
+popup_agree_button_message : "Accept"
+popup_info                 : ["value" => "<h2>We use cookies...</h2>", "format" => "full_html"]
+consent_storage_method     : "do_not_store"
+langcode                   : "en"
+```
+
+Note : `drush php` is a PHP console — bash commands like `find` don't work inside it. Exit first with `exit` then run bash commands in the terminal.
+
+### Where is the config file for `eu_cookie_compliance` located?
+
+```bash
+find web -name "eu_cookie_compliance.settings.yml"
+```
+
+Two locations:
+
+```
+# Default config shipped with the module (read only)
+web/modules/contrib/eu_cookie_compliance/config/install/eu_cookie_compliance.settings.yml
+
+# Your site's exported active config
+web/config/sync/eu_cookie_compliance.settings.yml
+```
+
+### Why do we need a `schema.yml` file?
+
+`schema.yml` tells Drupal the **structure and data types** of your config — like a TypeScript interface for your config object.
+
+```yaml
+# anytown.schema.yml
+anytown.settings:
+  type: config_object
+  label: 'Anytown settings'
+  mapping:
+    location:
+      type: string # zip code — not translatable
+      label: 'Location'
+    display_forecast:
+      type: boolean # true/false — not translatable
+      label: 'Display forecast'
+    weather_closures:
+      type: text # shown to users — translatable ✅
+      label: 'Weather closures'
+```
+
+4 reasons you need it:
+
+```
+1. Type casting    : display_forecast returns TRUE/FALSE not "1"/"0"
+2. Translation     : type: text/label values appear in translation UI
+3. Config deploy   : drush cim/cex validates values against schema
+4. Config inspector: admin/config/development/configuration/inspect shows green
+```
+
+Type reference:
+
+```
+type: string   : plain value, NOT translatable
+type: boolean  : true/false, NOT translatable
+type: integer  : number, NOT translatable
+type: text     : long text shown to users, TRANSLATABLE ✅
+type: label    : short text shown to users, TRANSLATABLE ✅
+```
+
+Location : `web/modules/custom/anytown/config/schema/anytown.schema.yml`
+
+### How do you load a node?
+
+```php
+// Load single node by ID
+$node = \Drupal::entityTypeManager()
+  ->getStorage('node')
+  ->load(1);
+
+// Get field values
+$title = $node->getTitle();
+$body  = $node->get('body')->value;
+$field = $node->get('field_my_field')->value;
+
+// Entity reference field — get the referenced entity
+$referenced = $node->get('field_ref')->entity;
+
+// Update a field and save
+$node->set('title', 'New Title');
+$node->set('field_my_field', 'new value');
+$node->save();
+```
+
+Useful node methods:
+
+```php
+$node->getType()       // content type : "article"
+$node->getTitle()      // title        : "My Article"
+$node->label()         // same as getTitle() for nodes
+$node->id()            // node ID      : 42
+$node->isPublished()   // published?   : TRUE/FALSE
+$node->getOwnerId()    // author ID    : 5
+```
+
+### What is a Constraint?
+
+A Constraint is a **validation rule** attached to a field or entity — runs automatically when you validate or save an entity:
+
+```php
+$node->set('field_url', 'not-a-url');
+$violations = $node->validate();
+
+if ($violations->count() > 0) {
+  foreach ($violations as $violation) {
+    echo $violation->getMessage();
+  }
+}
+```
+
+Built-in constraints:
+
+```
+NotNull      : field cannot be empty
+Length       : min/max string length
+Url          : must be valid URL
+UniqueField  : value must be unique across all nodes
+Range        : numeric min/max value
+```
+
+Difference from `validateForm()`:
+
+```
+validateForm()  : only runs when submitting a form
+Constraint      : runs whenever the entity is validated
+                  whether via form OR programmatic save
+```
+
+### What are View Builders and display modes?
+
+```
+View Builder  : the class that renders an entity into HTML
+Display mode  : a named configuration of how fields are displayed
+```
+
+Display modes:
+
+```
+full          : complete node page
+teaser        : preview card on listing pages
+search_result : search results display
+rss           : RSS feed display
+```
+
+```php
+$view_builder = $this->entityTypeManager()->getViewBuilder('node');
+
+// Render one node in teaser mode
+$render = $view_builder->view($node, 'teaser');
+
+// Render multiple nodes in teaser mode at once
+$render = $view_builder->viewMultiple($nodes, 'teaser');
+
+// Render a single field with options
+$render = $node->get('field_vendor_contact_email')->view([
+  'label' => 'hidden',  // hide the field label
+]);
+```
+
+### Entity Queries : Drupal's ORM
+
+Entity queries are like an ORM — same concept as Eloquent (Laravel):
+
+```
+Eloquent (Laravel)              Drupal Entity Query
+──────────────────              ──────────────────
+Article::where(...)          →  entityQuery('node')
+->where('type', 'article')   →  ->condition('type', 'article')
+->orderBy('created', 'desc') →  ->sort('created', 'DESC')
+->take(10)                   →  ->range(0, 10)
+->get()                      →  ->execute() + loadMultiple()
+```
+
+Full flow — always 2 steps:
+
+```php
+// Step 1 : fast lightweight query — get IDs only
+$nids = \Drupal::entityQuery('node')
+  ->accessCheck(TRUE)
+  ->condition('type', 'article')
+  ->condition('status', 1)
+  ->sort('created', 'DESC')
+  ->range(0, 10)
+  ->execute();
+// returns [] if nothing found — saves all further queries ✅
+
+// Step 2 : only runs IF ids exist — load full entities
+$nodes = \Drupal::entityTypeManager()
+  ->getStorage('node')
+  ->loadMultiple($nids);
+```
+
+Why 2 steps:
+
+```
+1. Cache        : already loaded entities come from memory — no DB query
+2. Flexibility  : sometimes you only need IDs (count, exists check)
+3. Architecture : fields in separate tables — no clean JOIN possible
+4. Fail fast    : if step 1 returns [] → step 2 never runs → saved queries
+```
+
+Common conditions:
+
+```php
+->condition('type', 'article')                      // content type
+->condition('status', 1)                            // published only
+->condition('uid', 5)                               // by user ID
+->condition('created', strtotime('-7 days'), '>=')  // last 7 days
+->condition('nid', 42, '<>')                        // exclude node 42
+->sort('created', 'DESC')                           // newest first
+->range(0, 10)                                      // first 10 results
+->count()->execute()                                // just the count
+```
+
+### What is the role of `accessCheck` in entity queries?
+
+```php
+// accessCheck(TRUE) — respects user permissions
+// anonymous user cannot see unpublished nodes
+// use for all frontend pages ✅
+->accessCheck(TRUE)
+
+// accessCheck(FALSE) — bypasses all permissions
+// returns ALL nodes regardless of who is logged in
+// use for cron, migrations, backend tasks ✅
+->accessCheck(FALSE)
+
+// Not passing it — deprecated in Drupal 9+, throws warning ❌
+// always pass accessCheck explicitly
+```
+
+### How do you get a node translation in French?
+
+```php
+$node = \Drupal::entityTypeManager()
+  ->getStorage('node')
+  ->load(1);
+
+// Check if French translation exists
+if ($node->hasTranslation('fr')) {
+  $french_node = $node->getTranslation('fr');
+  $title = $french_node->getTitle();
+  $body  = $french_node->get('body')->value;
+}
+
+// Get all available translations
+$languages = $node->getTranslationLanguages();
+foreach ($languages as $langcode => $language) {
+  $translated = $node->getTranslation($langcode);
+  echo $translated->getTitle();
+}
+```
+
+### `PHP_EOL` — End Of Line
+
+```php
+// PHP_EOL = newline character (\n on Linux/Mac, \r\n on Windows)
+// Use it to split textarea values into arrays
+
+$items = explode(PHP_EOL, $settings->get('weather_closures') ?? '');
+// "Monday closed\nTuesday closed" → ['Monday closed', 'Tuesday closed']
+
+// Better than hardcoding "\n" — works on all operating systems
+explode(PHP_EOL, $text)  // ✅ cross-platform
+explode("\n", $text)     // ❌ Linux/Mac only
+```
+
+---
+
+## Exercises : Node Selector Feature
+
+Built a 3-part "Related Content" feature in the `anytown` module:
+
+```
+Exercise 1 : Form with entity_autocomplete
+             admin selects a node → saved to State API
+
+Exercise 2 : Block reads saved node ID from State
+             loads node, displays title
+
+Exercise 3 : Entity query finds related nodes
+             same content type, excludes selected node
+             hook_theme + Twig renders the list
+```
+
+### Exercise 1 — NodeSelectorForm
+
+```php
+// src/Form/NodeSelectorForm.php
+class NodeSelectorForm extends FormBase {
+  use AutowireTrait;
+
+  const SELECTED_NODE = 'anytown.selected_node';
+
+  public function __construct(
+    StateInterface $state,
+    EntityTypeManagerInterface $entityTypeManager
+  ) { ... }
+
+  public function buildForm(...): array {
+    $saved_nid = $this->state->get(self::SELECTED_NODE);
+
+    $form['node_id'] = [
+      '#type' => 'entity_autocomplete',   // entity reference field
+      '#target_type' => 'node',           // search nodes only
+      '#title' => $this->t('Select a node'),
+      '#default_value' => $saved_nid
+        ? $this->entityTypeManager->getStorage('node')->load($saved_nid)
+        : NULL,
+    ];
+  }
+
+  public function submitForm(...): void {
+    $node_id = $form_state->getValue('node_id');
+    $this->state->set(self::SELECTED_NODE, $node_id);
+  }
+}
+```
+
+Why `#target_type` is required:
+
+```
+entity_autocomplete is generic — can reference ANY entity type
+#target_type tells it which one to search:
+
+'#target_type' => 'node'           // search nodes
+'#target_type' => 'user'           // search users
+'#target_type' => 'taxonomy_term'  // search terms
+```
+
+Why State and not Config:
+
+```
+Node IDs are environment-specific:
+  dev  : node 5 = "Test Article"
+  prod : node 5 = "Real Article" or doesn't exist!
+
+Config travels between environments → wrong choice ❌
+State stays per environment         → correct choice ✅
+```
+
+### Node Selector Form
+
+![Node Selector Form](./images/node-form.png)
+
+### Exercise 2 & 3 — NodeBlock with entity query + Twig
+
+```php
+// src/Plugin/Block/NodeBlock.php
+public function build(): array {
+  $saved_nid = $this->state->get(NodeSelectorForm::SELECTED_NODE);
+  $node = $this->entityTypeManager->getStorage('node')->load($saved_nid);
+
+  if (!$node) {
+    return ['#markup' => $this->t('No node selected.')];
+  }
+
+  // entity query : same type, exclude selected, published only
+  $nids = $this->entityTypeManager->getStorage('node')->getQuery()
+    ->accessCheck(TRUE)
+    ->condition('type', $node->getType())   // same content type
+    ->condition('nid', $saved_nid, '<>')    // exclude selected node
+    ->condition('status', 1)
+    ->execute();
+
+  $related_nodes = $this->entityTypeManager->getStorage('node')->loadMultiple($nids);
+  $related_titles = [];
+  foreach ($related_nodes as $related) {
+    $related_titles[] = $related->label();
+  }
+
+  return [
+    '#theme' => 'node_block',
+    '#title' => $node->label(),
+    '#nodes' => $related_titles,
+    '#cache' => [
+      'tags' => array_merge(
+        $node->getCacheTags(),  // invalidate when selected node changes
+        ['node_list'],          // invalidate when any node is added/deleted
+      ),
+    ],
+  ];
+}
+```
+
+hook_theme — merged into existing `AnytownTheme.php`:
+
+```php
+// only ONE hook_theme per module — merge all into same method
+#[Hook('theme')]
+public function theme(): array {
+  return [
+    'weather_page' => [...],  // existing
+    'node_block' => [
+      'variables' => [
+        'title' => NULL,  // no # prefix in hook_theme variables
+        'nodes' => [],
+      ],
+    ],
+  ];
+}
+```
+
+Twig template `templates/node-block.html.twig`:
+
+```twig
+<div class="node-block">
+  <h3>{{ title }}</h3>
+  {% if nodes %}
+    <ul class="node-block__related">
+      {% for node_title in nodes %}
+        <li>{{ node_title }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>{{ 'No related nodes found.'|t }}</p>
+  {% endif %}
+</div>
+```
+
+### Node Block with Related Content
+
+![Node Block](./images/node-block.png)
+
+### Key lessons from exercises
+
+```
+hook_theme once    : only ONE hook_theme per module
+                     merge all theme hooks into the same method
+                     Drupal throws error if implemented more than once
+
+# prefix           : used in render arrays (#title, #nodes)
+                     NOT used in hook_theme variable definitions
+
+node_list tag      : cache tag that invalidates when ANY node changes
+                     use alongside node->getCacheTags() for related content
+
+getType()          : returns content type string "article", "page" etc
+'<>' operator      : not equal — used to exclude a node ID from query
+```
+
+### Cache tags reference
+
+```php
+// Single node cache — invalidates when THIS specific node is updated
+'tags' => $node->getCacheTags()
+
+// Node list cache — invalidates when ANY node is created/updated/deleted
+'tags' => ['node_list']
+
+// Combined — best for related content blocks ✅
+'tags' => array_merge($node->getCacheTags(), ['node_list'])
+```

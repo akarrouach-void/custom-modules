@@ -10,3 +10,10 @@ anytown.settings:
   parent: system.admin_config_development
   route_name: anytown.settings
   weight: 102
+
+anytown.node_selector:
+  title: 'Node Selector'
+  description: 'Select a node to display in the block.'
+  route_name: anytown.node_selector
+  parent: system.admin_config_development
+  weight: 103
