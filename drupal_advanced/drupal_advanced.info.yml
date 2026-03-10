@@ -1,0 +1,7 @@
+name: Drupal Advanced
+description: Provides advanced features and functionalities for Drupal websites.
+package: Custom
+type: module
+core_version_requirement: ^9 || ^10 || ^11
+dependencies:
+  - password_policy:password_policy

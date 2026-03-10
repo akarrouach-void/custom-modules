@@ -1,0 +1,13 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Implements hook_entity_base_field_info_alter().
+ */
+function drupal_advanced_entity_base_field_info_alter(&$fields, $entity_type) {
+  if ($entity_type->id() === 'user' && isset($fields['pass'])) {
+    \Drupal::logger('drupal_advanced')->notice('HOOK CALLED FROM MODULE FILE');
+    $fields['pass']->addConstraint('PasswordPolicyConstraint');
+  }
+}
