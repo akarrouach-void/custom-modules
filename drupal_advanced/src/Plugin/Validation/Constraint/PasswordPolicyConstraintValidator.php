@@ -25,16 +25,12 @@ final class PasswordPolicyConstraintValidator extends ConstraintValidator implem
 
     $password = $value->value ?? '';
     $entity = $this->context->getRoot()->getValue();
-    $violations = $this->passwordPolicyValidator->validatePassword($password, $entity);
-
-    // if ($result->hasErrors()) {
-    //   $this->context->addViolation($constraint->message);
-    // }
-
-    if (!empty($violations)) {
+    
+    $report = $this->passwordPolicyValidator->validatePassword($password, $entity);
+    
+    if ($report->isInvalid()) {
       $this->context->addViolation($constraint->message);
-    } 
-
+    }
   }
 
   public static function create(ContainerInterface $container): static {
