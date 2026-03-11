@@ -25,7 +25,7 @@ When a user registers or edits their account with a weak password, all three vio
 
 ## Scaffolding a Custom Entity
 
-Generating a custom entity by hand involves a lot of boilerplate — entity class, routing, forms, handlers, and multiple YAML files. The fastest way is using Drush with Drupal Code Generator:
+Generating a custom entity by hand involves a lot of boilerplate : entity class, routing, forms, handlers, and multiple YAML files. The fastest way is using Drush with Drupal Code Generator:
 
 ```bash
 drush generate entity:content
@@ -48,7 +48,7 @@ $definition->getSettings();
 
 ## Multiple Formatters for a Field Type
 
-Yes, a field type and its formatters are fully decoupled. You can register as many formatters as you want for the same field type by pointing multiple `#[FieldFormatter]` plugins at the same `field_types` value. They all appear as options in the Manage Display UI. Drupal core already does this — the `text` field type ships with Default, Plain text, and Trimmed formatters out of the box.
+Yes, a field type and its formatters are fully decoupled. You can register as many formatters as you want for the same field type by pointing multiple `#[FieldFormatter]` plugins at the same `field_types` value. They all appear as options in the Manage Display UI. Drupal core already does this to the `text` field type ships with Default, Plain text, and Trimmed formatters out of the box.
 
 ## Retrieving Module Config via Drush
 
@@ -377,7 +377,7 @@ First attempt without config_split failed with:
 Unable to install the devel module since it does not exist.
 ```
 
-This confirmed the sprint question — without config_split, devel config gets included in the export and breaks the prod import.
+This confirmed the sprint question without config_split, devel config gets included in the export and breaks the prod import.
 
 **Answer: Yes, devel would have been installed in prod without config_split. That is the problem it solves.**
 
@@ -402,7 +402,7 @@ Created the folder:
 mkdir -p config/dev
 ```
 
-Exported again — devel config moved to the dev split folder and out of the main sync:
+Exported again devel config moved to the dev split folder and out of the main sync:
 
 ```bash
 ddev drush config:export -y
@@ -466,7 +466,7 @@ ddev drush en features features_ui -y
 ddev drush cr
 ```
 
-> `features_ui` provides the browser UI for building feature packages. It is installed in dev only — prod will only have the base `features` module.
+> `features_ui` provides the browser UI for building feature packages. It is installed in dev only, prod will only have the base `features` module.
 
 ---
 
@@ -570,7 +570,7 @@ ddev drush config:set node.type.article_plus name "Article Plus PROD EDIT" -y
 ddev drush cr
 ```
 
-This simulates a real-world scenario where someone edits config directly in prod — creating a divergence from what the feature defines.
+This simulates a real-world scenario where someone edits config directly in prod creating a divergence from what the feature defines.
 
 ---
 
@@ -588,7 +588,7 @@ Dev now has the `field_subtitle` field:
 
 ![Dev with Subtitle field](./images/dev-withfield.png)
 
-Re-export the feature via the UI — make sure to check the new `Subtitle` field and `node.field_subtitle` field storage, then click **Write** again.
+Re-export the feature via the UI make sure to check the new `Subtitle` field and `node.field_subtitle` field storage, then click **Write** again.
 
 Or via Drush:
 
@@ -626,7 +626,7 @@ ddev drush features-import article_plus_feature -y
 ddev drush cr
 ```
 
-Features imports by overwriting active config with the feature's version — the prod name edit is reverted and the new `field_subtitle` is added.
+Features imports by overwriting active config with the feature's version the prod name edit is reverted and the new `field_subtitle` is added.
 
 Verify the conflict was resolved and the new field exists:
 
@@ -638,9 +638,13 @@ ddev drush ev "\$f = \Drupal::entityTypeManager()->getStorage('field_config')->l
 # EXISTS
 ```
 
-Prod content type fields before import — `field_subtitle` is now present:
+Prod content type fields before import : `field_subtitle` is not present:
 
 ![Prod with Subtitle field before import](./images/prod-nofield.png)
+
+Prod content type fields after import : `field_subtitle` is now present:
+
+![Prod with Subtitle field after import](./images/dev-withfield.png)
 
 ---
 
@@ -648,14 +652,14 @@ Prod content type fields before import — `field_subtitle` is now present:
 
 **Yes.**
 
-When the content type name was changed directly in prod to "Article Plus PROD EDIT" and the feature was then updated and re-imported, Features flagged the package state as `Changed` — meaning prod config had drifted from what the feature defines.
+When the content type name was changed directly in prod to "Article Plus PROD EDIT" and the feature was then updated and re-imported, Features flagged the package state as `Changed` meaning prod config had drifted from what the feature defines.
 
 Running `ddev drush features-import article_plus_feature` resolved the conflict by reverting prod to the feature's version:
 
 - The name "Article Plus PROD EDIT" was overwritten back to "Article Plus"
 - The new `field_subtitle` field was added cleanly with no conflict
 
-**Key lesson:** Features _owns_ the config it exports. Any manual changes in prod to config that belongs to a feature will be flagged as `Changed` on the next import and overwritten. If a prod change needs to persist, it must be made in dev, captured in the feature, and re-deployed — never edited directly in prod.
+**Key lesson:** Features _owns_ the config it exports. Any manual changes in prod to config that belongs to a feature will be flagged as `Changed` on the next import and overwritten. If a prod change needs to persist, it must be made in dev, captured in the feature, and re-deployed never edited directly in prod.
 
 ---
 
