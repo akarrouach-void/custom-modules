@@ -57,3 +57,227 @@ drush config:get mymodule.settings
 drush config:get mymodule.settings some_key
 drush config:edit mymodule.settings
 ```
+
+# Day 2: Work with Hooks
+
+## Adding a new base field to an existing entity type using `hook_entity_base_field_info`
+
+This hook lets you add a new field to an existing entity type you don't own. It targets the entity type level, meaning the field is added to all bundles. If you only need it on one bundle, use `hook_entity_bundle_field_info` instead.
+
+```php
+function drupal_advanced_entity_base_field_info(EntityTypeInterface $entity_type): array {
+  $fields = [];
+
+  if ($entity_type->id() === 'node') {
+    $fields['drupal_advanced_subtitle'] = BaseFieldDefinition::create('string')
+      ->setLabel(t('Subtitle'))
+      ->setDisplayOptions('form', [
+        'type' => 'string_textfield',
+        'weight' => -4,
+      ])
+      ->setDisplayConfigurable('form', TRUE)
+      ->setDisplayConfigurable('view', TRUE);
+  }
+
+  return $fields;
+}
+```
+
+After adding this, run `drush updb` to create the column in the database.
+
+## What is the role of `hook_update_n`
+
+It runs a one-time update on an already installed module. Drupal tracks which updates have run so it never runs the same one twice. Think of it like a database migration.
+
+The number follows this structure: `[major_version][schema_version][sequential_number]`
+
+```
+hook_update_10001
+  10 → Drupal 10
+  0  → module schema version
+  01 → first update
+```
+
+```php
+/**
+ * Add subtitle field to node table.
+ */
+function drupal_advanced_update_10001(): void {
+  $field = BaseFieldDefinition::create('string')
+    ->setLabel(t('Subtitle'));
+
+  \Drupal::entityDefinitionUpdateManager()
+    ->installFieldStorageDefinition(
+      'drupal_advanced_subtitle',
+      'node',
+      'drupal_advanced',
+      $field
+    );
+}
+```
+
+```bash
+drush updb          # run all pending updates
+drush updb --no     # preview without running
+```
+
+## What is the role of `hook_install`
+
+Runs once when the module is first enabled. Used for one-time setup like creating default config, inserting initial data, or setting up default terms.
+
+```php
+function drupal_advanced_install(): void {
+  \Drupal::configFactory()
+    ->getEditable('drupal_advanced.settings')
+    ->set('enabled', TRUE)
+    ->save();
+}
+```
+
+```
+drush en drupal_advanced  → hook_install runs once, never again
+drush updb                → hook_update_n runs for any updates Drupal hasn't seen yet
+```
+
+```
+hook_install    → building the house before anyone moves in
+hook_update_n   → renovating the house while people are still living in it
+```
+
+## Prefixing all newly created article nodes with `HEY-` using `hook_ENTITY_TYPE_presave`
+
+`presave` fires right before the entity hits the database so you can modify values before they are saved. `$node->isNew()` ensures the prefix is only added on creation, not on every update.
+
+```php
+function drupal_advanced_node_presave(NodeInterface $node): void {
+  if ($node->isNew() && $node->getType() === 'article') {
+    $current_title = $node->getTitle();
+
+    if (!str_starts_with($current_title, 'HEY-')) {
+      $node->setTitle('HEY-' . $current_title);
+    }
+  }
+}
+```
+
+The full entity lifecycle:
+
+```
+presave  → before DB  → can still modify entity
+insert   → after DB   → new entity, cannot modify
+update   → after DB   → existing entity, cannot modify
+delete   → before DB  → entity being deleted
+```
+
+## What is the role of `$entity->original`
+
+When an entity is updated, Drupal loads the previous version from the database and attaches it as `$entity->original`. This lets you compare old and new values. It is `NULL` on new entities so always check `!$entity->isNew()` first.
+
+```php
+function drupal_advanced_node_presave(NodeInterface $node): void {
+  if (!$node->isNew() && $node->original) {
+    $old_title = $node->original->getTitle();
+    $new_title = $node->getTitle();
+
+    if ($old_title !== $new_title) {
+      \Drupal::logger('drupal_advanced')
+        ->info('Title changed from @old to @new', [
+          '@old' => $old_title,
+          '@new' => $new_title,
+        ]);
+    }
+  }
+}
+```
+
+```
+new entity    → $entity->original is NULL
+update        → $entity->original has the old data
+```
+
+Available in both `presave` and `update` hooks.
+
+## How to override a Theme Hook provided by another module
+
+Drupal has a strict priority order:
+
+```
+active theme   → always wins
+custom module  → wins over contrib
+contrib module → lowest priority
+```
+
+The simplest way is to create a template with the same name in your active theme, no code needed:
+
+```
+mytheme/
+  templates/
+    user.html.twig   ← Drupal picks this, ignores the module's version
+```
+
+To override from a module instead of a theme, use `hook_theme_registry_alter` to point Drupal to your module's templates folder:
+
+```php
+function drupal_advanced_theme_registry_alter(array &$theme_registry): void {
+  if (isset($theme_registry['user'])) {
+    $theme_registry['user']['path'] = \Drupal::service('extension.list.module')
+      ->getPath('drupal_advanced') . '/templates';
+  }
+}
+```
+
+## Adding a theme suggestion for `user` based on view mode using `hook_theme_suggestions_alter`
+
+Theme suggestions tell Drupal to look for a more specific template before falling back to the default. This lets you have a different template per view mode without touching the original.
+
+```php
+function drupal_advanced_theme_suggestions_alter(
+  array &$suggestions,
+  array $variables,
+  string $hook
+): void {
+  if ($hook === 'user') {
+    $view_mode = $variables['elements']['#view_mode'] ?? 'full';
+    $suggestions[] = 'user__' . $view_mode;
+  }
+}
+```
+
+Then create the templates in your active theme:
+
+```
+mytheme/
+  templates/
+    user.html.twig            ← default fallback
+    user--teaser.html.twig    ← used only in teaser mode
+    user--full.html.twig      ← used only in full mode
+```
+
+The naming convention:
+
+```
+suggestion: user__teaser   → filename: user--teaser.html.twig
+             __ = --
+```
+
+How it flows:
+
+```
+user rendered in teaser mode
+  → suggestion user__teaser added
+  → Drupal looks for user--teaser.html.twig
+  → found → uses it
+  → not found → falls back to user.html.twig
+```
+
+This same pattern works for any use case for example switching layout based on a query string:
+
+```
+/content?type=grid    → node--grid.html.twig
+/content?type=list    → node--list.html.twig
+/content?type=columns → node--columns.html.twig
+```
+
+```bash
+drush cr   # always clear cache after adding new templates
+```
