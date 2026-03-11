@@ -638,11 +638,9 @@ ddev drush ev "\$f = \Drupal::entityTypeManager()->getStorage('field_config')->l
 # EXISTS
 ```
 
-Prod content type fields after import — `field_subtitle` is now present:
+Prod content type fields before import — `field_subtitle` is now present:
 
-![Prod with Subtitle field after import](./images/prod-nofield.png)
-
-> Note: The screenshot above was taken just before the final import to capture the "before" state (no Subtitle field). After `features-import`, prod matches dev with all four fields: Body, Subtitle, Summary, Topics.
+![Prod with Subtitle field before import](./images/prod-nofield.png)
 
 ---
 
