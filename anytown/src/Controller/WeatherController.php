@@ -27,9 +27,9 @@ class WeatherController extends ControllerBase {
 
 
     $url = 'https://raw.githubusercontent.com/DrupalizeMe/module-developer-guide-demo-site/main/backups/weather_forecast.json';
-    if ($location) {
-      $url = $url . strtolower($location);
-    }
+    // if ($location) {
+    //   $url = $url . strtolower($location);
+    // }
 
     $forecast_data = $this->forecast_client->getForecastData($url);
     $rows = [];
@@ -99,7 +99,10 @@ class WeatherController extends ControllerBase {
         '#title' => $this->t('Weather related closures'),
         '#items' => explode(PHP_EOL, $settings->get('weather_closures') ?? ''),
       ],
-      '#cache' => ['tags' => $settings->getCacheTags()],
+      '#cache' => [
+        'tags' => $settings->getCacheTags(),
+        'contexts' => ['url']
+        ],
     ];
 
     return $build;

@@ -672,3 +672,218 @@ Running `ddev drush features-import article_plus_feature` resolved the conflict 
 | `drush features-export <module>` | Re-export a feature from active config             |
 | `drush features-import <module>` | Import feature into active config (resolves drift) |
 | `drush features-diff <module>`   | Show diff between feature and active config        |
+
+# Day 4: Work with Cache
+
+Ref: https://drupalize.me/tutorial/concept-caching?p=3244
+
+## Part 1: ForecastClient cache debugging
+
+### The service
+
+The `anytown` module has a `ForecastClient` service that fetches weather forecast data from a remote JSON endpoint and caches the result using `cache.default`.
+
+### `anytown.services.yml`
+
+```yaml
+services:
+  anytown.forecast_client:
+    class: Drupal\anytown\ForecastClient
+    arguments: ['@http_client', '@logger.factory', '@cache.default']
+  Drupal\anytown\ForecastClientInterface:
+    alias: anytown.forecast_client
+```
+
+### `ForecastClient.php`
+
+```php
+public function getForecastData(string $url, $reset_cache = false) : ?array {
+  $cache_id = 'anytown_forecast:' . md5($url);
+  $data = $this->cache->get($cache_id);
+
+  if ($data && !$reset_cache) {
+    $forecast = $data->data;
+  } else {
+    try {
+      $response = $this->httpClient->request('GET', $url);
+      $json = json_decode($response->getBody()->getContents());
+    }
+    catch (GuzzleException $e) {
+      $this->logger->warning($e->getMessage());
+      return NULL;
+    }
+
+    $forecast = [];
+    foreach ($json->list as $day) {
+      $forecast[$day->day] = [
+        'weekday'     => ucfirst($day->day),
+        'description' => $day->weather[0]->description,
+        'high'        => $this->kelvinToFahrenheit($day->main->temp_max),
+        'low'         => $this->kelvinToFahrenheit($day->main->temp_min),
+        'icon'        => $day->weather[0]->icon,
+      ];
+    }
+
+    $this->cache->set($cache_id, $forecast, strtotime('+1 hour'));
+  }
+
+  return $forecast;
+}
+```
+
+### Adding caching to ForecastClient
+
+Implemented caching in `getForecastData` using `cache.default` on the first request the data is fetched from the remote API and stored in cache for 1 hour. Subsequent requests return the cached data directly without hitting the API.
+
+### Issue encountered
+
+After implementing caching, every page refresh was still a cache miss. The issue was in `WeatherController` the location config value was being appended directly to the JSON filename:
+
+```php
+// WeatherController.php this was the problem
+// Produced: weather_forecast.json12345 → 404 → GuzzleException → return NULL
+// cache->set() was never reached because the HTTP request failed
+
+// if ($location) {
+//   $url = $url . strtolower($location);
+// }
+```
+
+The broken URL caused a 404, Guzzle threw an exception, the catch block returned `NULL` `cache->set()` was never reached. Commenting out the location append fixed it and caching worked correctly.
+
+## Part 2: /api/articles endpoint
+
+### Route `drupal_advanced.routing.yml`
+
+```yaml
+drupal_advanced.article_api:
+  path: '/api/articles'
+  defaults:
+    _controller: '\Drupal\drupal_advanced\Controller\ArticleApiController::getArticles'
+    _title: 'Article API'
+  requirements:
+    _permission: 'access content'
+```
+
+### Controller `src/Controller/ArticleApiController.php`
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace Drupal\drupal_advanced\Controller;
+
+use Drupal\Core\Cache\CacheableJsonResponse;
+use Drupal\Core\Cache\CacheableMetadata;
+use Drupal\Core\Controller\ControllerBase;
+
+class ArticleApiController extends ControllerBase {
+
+  const NODE_IDS = [2, 7, 31];
+
+  public function getArticles(): CacheableJsonResponse {
+    $storage = $this->entityTypeManager()->getStorage('node');
+    $data = [];
+
+    foreach (self::NODE_IDS as $nid) {
+      /** @var \Drupal\node\NodeInterface $node */
+      $node = $storage->load($nid);
+      if ($node) {
+        $data[] = [
+          'nid'   => (int) $node->id(),
+          'title' => $node->getTitle(),
+        ];
+      }
+    }
+
+    $response = new CacheableJsonResponse($data);
+
+    $cache = new CacheableMetadata();
+    $cache->setCacheMaxAge(60);
+    // Only declare tags for the specific nodes we care about.
+    // node_list is not needed here since our list is static/hardcoded.
+    $cache->setCacheTags(['node:2', 'node:7', 'node:31']);
+    $response->addCacheableDependency($cache);
+
+    return $response;
+  }
+}
+```
+
+### Endpoint response
+
+![API articles endpoint](./images/api-articles.png)
+
+```json
+[
+	{
+		"nid": "2",
+		"title": "The Future of Digital Transformation in Morocco: 2026 and Beyond"
+	},
+	{ "nid": "7", "title": "Scheduled Test Article" },
+	{ "nid": "31", "title": "Article Test" }
+]
+```
+
+## Part 3: max-age caching
+
+Set `setCacheMaxAge(60)` the response is cached for 60 seconds.
+
+**Test:** edited node 31's title and immediately hit the endpoint again.
+
+**Result:** the old title was still returned. The cache had no awareness of the content change it only expires after 60 seconds regardless of edits.
+
+**Answer: No, the data does not refresh instantly with max-age.**
+
+## Part 4: cache tags
+
+Added cache tags one per node:
+
+```php
+$cache->setCacheTags(['node:2', 'node:7', 'node:31']);
+```
+
+When Drupal saves a node it automatically invalidates the matching `node:X` tag. Any cached response that declared a dependency on that tag is immediately marked stale and rebuilt on the next request.
+
+**Test:** edited node 31's title and immediately hit the endpoint.
+
+**Result:** the new title appeared instantly.
+
+**Answer: Yes, the data refreshes instantly with cache tags.**
+
+### Why not add `node_list`?
+
+`node_list` is invalidated when any node is **created or deleted** not on edit. Since our list is hardcoded to `[2, 7, 31]`, we don't care about new nodes being created. The individual `node:X` tags are sufficient.
+
+`node_list` would be essential for dynamic queries like "get the latest 3 articles" where creating a new node would change the results.
+
+## Part 5: inspecting cache tags via response headers
+
+By setting `http.response.debug_cacheability_headers: true` in `sites/development.services.yml` and loading it via `settings.local.php`, Drupal exposes cache metadata as HTTP response headers on every request.
+
+```yaml
+# sites/development.services.yml
+parameters:
+  http.response.debug_cacheability_headers: true
+```
+
+```php
+// sites/default/settings.local.php
+$settings['container_yamls'][] = DRUPAL_ROOT . '/sites/development.services.yml';
+```
+
+Inspect them in **browser DevTools → Network tab → select the request → Response Headers**:
+
+![Cache response headers](./images/cache-headers.png)
+
+```
+X-Drupal-Cache:          HIT
+X-Drupal-Cache-Tags:     config:user.role.anonymous http_response node:2 node:31 node:7
+X-Drupal-Cache-Contexts: user.permissions
+X-Drupal-Cache-Max-Age:  60
+```
+
+This tells you exactly which tags the cached response depends on useful for verifying your caching is configured correctly without reading the source code.
+
+> `development.services.yml` is **dev only**. It is loaded via `settings.local.php` which is never committed to git and never exists on production.

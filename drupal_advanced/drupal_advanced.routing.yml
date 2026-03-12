@@ -1,0 +1,7 @@
+drupal_advanced.article_api:
+  path: '/api/articles'
+  defaults:
+    _controller: '\Drupal\drupal_advanced\Controller\ArticleApiController::getArticles'
+    _title: 'Article API'
+  requirements:
+    _permission: 'access content'

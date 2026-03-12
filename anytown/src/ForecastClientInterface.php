@@ -11,10 +11,12 @@ interface ForecastClientInterface {
    *
     * @param string $url
     *   The URL to fetch the forecast data from.
+    * @param bool $reset_cache
+    *   Whether to reset the cache.
     *
     * @return array|null
     *   An associative array of forecast data, or null if the fetch fails.
     */
-  public function getForecastData(string $url) : ?array;
+  public function getForecastData(string $url, bool $reset_cache = false) : ?array;
 
 } 
