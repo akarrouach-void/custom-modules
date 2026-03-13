@@ -461,7 +461,7 @@ Export only the Article Plus content type, Topics taxonomy, fields, and the Arti
 
 ```bash
 cd ~/dev/drupal-dev
-ddev composer require drupal/features drupal/config_update
+composer require 'drupal/features:^3.16' 'drupal/config_update:^2.0@alpha'
 ddev drush en features features_ui -y
 ddev drush cr
 ```
@@ -536,7 +536,7 @@ cp -r ~/dev/drupal-dev/web/modules/custom/article_plus_feature \
 
 ```bash
 cd ~/dev/drupal-prod
-ddev composer require drupal/features drupal/config_update
+composer require 'drupal/features:^3.16' 'drupal/config_update:^2.0@alpha'
 ddev drush en features -y
 # features_ui is intentionally NOT enabled in prod
 ddev drush cr
