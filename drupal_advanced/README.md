@@ -887,3 +887,319 @@ X-Drupal-Cache-Max-Age:  60
 This tells you exactly which tags the cached response depends on useful for verifying your caching is configured correctly without reading the source code.
 
 > `development.services.yml` is **dev only**. It is loaded via `settings.local.php` which is never committed to git and never exists on production.
+
+# Day 5: Work with Data Migration
+
+## Setup
+
+Created the migration module structure:
+
+```bash
+cd ~/dev/new_drupal
+mkdir -p web/modules/custom/drupal_migration/migrations
+mkdir -p web/modules/custom/drupal_migration/data
+```
+
+Created `web/modules/custom/drupal_migration/drupal_migration.info.yml`:
+
+```yaml
+name: Drupal Migration
+type: module
+description: 'Custom migration module for Day 5'
+package: Custom
+core_version_requirement: ^11
+dependencies:
+  - drupal:migrate
+  - drupal:migrate_plus
+  - drupal:migrate_tools
+```
+
+Installed migration modules:
+
+```bash
+ddev composer require drupal/migrate_plus drupal/migrate_tools
+ddev drush en migrate migrate_plus migrate_tools -y
+```
+
+Created the vocabulary:
+
+```bash
+ddev drush ev "\$vocab = \Drupal\taxonomy\Entity\Vocabulary::create(['vid' => 'article_categories', 'name' => 'Article Categories']); \$vocab->save();"
+```
+
+## CSV Files
+
+`web/modules/custom/drupal_migration/data/categories.csv`:
+
+```csv
+id,name,description
+1,Technology,Tech articles
+2,Science,Science articles
+3,Business,Business articles
+```
+
+`web/modules/custom/drupal_migration/data/articles.csv`:
+
+```csv
+id,title,body,category_id,created
+1,This is a very long title that will be trimmed,Technology content here,1,2024-01-15
+2,Short Title,Science discovery content,2,2024-02-20
+3,Another extremely long title for testing,Business trends analysis,3,2024-03-01
+```
+
+## Migration Files
+
+`web/modules/custom/drupal_migration/migrations/migrate_categories.yml`:
+
+```yaml
+id: migrate_categories
+label: 'Import Article Categories'
+migration_group: drupal_migration
+
+source:
+  plugin: csv
+  path: modules/custom/drupal_migration/data/categories.csv
+  header_offset: 0
+  ids:
+    - id
+
+process:
+  name: name
+  description: description
+  vid:
+    plugin: default_value
+    default_value: article_categories
+
+destination:
+  plugin: entity:taxonomy_term
+```
+
+`web/modules/custom/drupal_migration/migrations/migrate_articles.yml`:
+
+```yaml
+id: migrate_articles
+label: 'Import Articles'
+migration_group: drupal_migration
+
+source:
+  plugin: csv
+  path: modules/custom/drupal_migration/data/articles.csv
+  header_offset: 0
+  ids:
+    - id
+
+process:
+  title:
+    plugin: substr
+    source: title
+    start: 0
+    length: 10
+
+  'body/value': body
+  'body/format':
+    plugin: default_value
+    default_value: basic_html
+
+  field_tags:
+    plugin: migration_lookup
+    migration: migrate_categories
+    source: category_id
+
+  created:
+    plugin: callback
+    callable: strtotime
+    source: created
+
+  type:
+    plugin: default_value
+    default_value: article
+
+  uid:
+    plugin: default_value
+    default_value: 1
+
+destination:
+  plugin: entity:node
+
+migration_dependencies:
+  required:
+    - migrate_categories
+```
+
+## Running the Migration
+
+```bash
+ddev drush en drupal_migration -y
+ddev drush cr
+ddev drush migrate:status
+ddev drush migrate:import migrate_categories
+ddev drush migrate:import migrate_articles
+```
+
+Results:
+
+```bash
+ddev drush sqlq "SELECT nid, title FROM node_field_data WHERE type='article' ORDER BY nid DESC"
+```
+
+Output:
+
+```
+nid  title
+3    Another ex
+2    Short Titl
+1    This is a
+```
+
+All titles were trimmed to 10 characters as configured.
+
+## Question 1: What is the role of migration_lookup?
+
+`migration_lookup` maps source IDs from one migration to Drupal entity IDs created by a previous migration.
+
+In `migrate_articles.yml`:
+
+```yaml
+field_tags:
+  plugin: migration_lookup
+  migration: migrate_categories
+  source: category_id
+```
+
+When CSV has `category_id: 1`, Drupal looks up the `migrate_map_migrate_categories` table to find which term ID was created for source ID 1 and returns that Drupal term ID for the reference field.
+
+Without it, you'd be referencing non-existent IDs since Drupal auto-generates its own entity IDs.
+
+## Question 2: What would you do if you needed to import from a MySQL database instead of CSV?
+
+Add the database connection to `settings.php`:
+
+```php
+$databases['legacy']['default'] = [
+  'database' => 'legacy_db',
+  'username' => 'root',
+  'password' => 'password',
+  'host' => 'localhost',
+  'driver' => 'mysql',
+];
+```
+
+Create a custom source plugin `src/Plugin/migrate/source/LegacyArticle.php`:
+
+```php
+<?php
+
+namespace Drupal\drupal_migration\Plugin\migrate\source;
+
+use Drupal\migrate\Plugin\migrate\source\SqlBase;
+
+/**
+ * @MigrateSource(
+ *   id = "legacy_article"
+ * )
+ */
+class LegacyArticle extends SqlBase {
+
+  public function query() {
+    return $this->select('articles', 'a')
+      ->fields('a', ['id', 'title', 'body', 'category_id', 'created']);
+  }
+
+  public function fields() {
+    return [
+      'id' => $this->t('Article ID'),
+      'title' => $this->t('Title'),
+      'body' => $this->t('Body'),
+      'category_id' => $this->t('Category ID'),
+      'created' => $this->t('Created date'),
+    ];
+  }
+
+  public function getIds() {
+    return ['id' => ['type' => 'integer']];
+  }
+}
+```
+
+Use it in the migration:
+
+```yaml
+source:
+  plugin: legacy_article
+  key: legacy
+```
+
+## Question 3: How would you rollback a migration?
+
+```bash
+ddev drush migrate:rollback migrate_articles
+```
+
+This deletes all entities created by the migration and clears the map table.
+
+Test:
+
+```bash
+ddev drush migrate:rollback migrate_articles
+ddev drush sqlq "SELECT COUNT(*) FROM node WHERE type='article'"
+```
+
+Output: `0`
+
+To rollback everything:
+
+```bash
+ddev drush migrate:rollback migrate_articles
+ddev drush migrate:rollback migrate_categories
+```
+
+Or by group:
+
+```bash
+ddev drush migrate:rollback --group=drupal_migration
+```
+
+## Question 4: How would you process a field before importing it? Say trim the length of a string to 10 characters?
+
+Use the `substr` plugin in the process section:
+
+```yaml
+process:
+  title:
+    plugin: substr
+    source: title
+    start: 0
+    length: 10
+```
+
+This trims all titles to 10 characters before importing.
+
+Other common transformations:
+
+```yaml
+# Lowercase
+title:
+  plugin: callback
+  callable: strtolower
+  source: title
+
+# Combine fields
+full_name:
+  plugin: concat
+  source:
+    - first_name
+    - last_name
+  delimiter: ' '
+
+# Strip HTML
+body:
+  plugin: callback
+  callable: strip_tags
+  source: body_html
+
+# Convert date
+created:
+  plugin: callback
+  callable: strtotime
+  source: date_string
+```

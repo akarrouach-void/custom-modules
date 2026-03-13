@@ -1,0 +1,10 @@
+# drupal_migration.info.yml
+name: Drupal Migration
+type: module
+description: 'Custom migration module for CSV data import'
+package: Custom
+core_version_requirement: ^11
+dependencies:
+  - drupal:migrate
+  - drupal:migrate_plus
+  - drupal:migrate_tools
